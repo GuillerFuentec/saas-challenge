@@ -1,36 +1,36 @@
-# Cómo probar ScopeKit
+﻿# How to Test ScopeKit
 
-Esta guía complementa el README del monorepo y explica, con el mismo nivel de detalle, cómo validar que ScopeKit esté aplicando el scope multi‑tenant en el servicio Node y que el ERP PHP respete ese aislamiento.
+This guide complements the monorepo README and explains, with the same level of detail, how to validate that ScopeKit applies the multi-tenant scope in the Node service and that the PHP ERP respects that isolation.
 
-## Prerrequisitos
+## Prerequisites
 
-- Docker Desktop (o Docker Engine + Compose plugin) en ejecución.
-- Archivo `.env` en la raíz del repositorio con los valores deseados (`MYSQL_PORT`, `NODE_API_PORT`, `PHP_HTTP_PORT`, `LOGIN_USERNAME`, `LOGIN_PASSWORD`).
-- Imagenes locales construidas con `docker compose up --build` al menos una vez.
+- Docker Desktop (or Docker Engine plus the Compose plugin) running.
+- `.env` file in the repository root with the desired values (`MYSQL_PORT`, `NODE_API_PORT`, `PHP_HTTP_PORT`, `LOGIN_USERNAME`, `LOGIN_PASSWORD`).
+- Local images built at least once with `docker compose up --build`.
 
-> Todos los comandos se ejecutan desde `Technical Challenge ERP SaaS/challenge/saas-challenge`.
+> All commands are executed from `Technical Challenge ERP SaaS/challenge/saas-challenge`.
 
-## 1. Arrancar el stack
+## 1. Start the Stack
 
-1. Levanta los contenedores (reconstruye si cambiaste configuraciones, como los puertos):
+1. Bring the containers up (rebuild if you changed configuration such as ports):
 
    ```powershell
    docker compose up --build
    ```
 
-2. Espera a ver en los logs:
+2. Wait to see in the logs:
    - `Credential service listening on port 3000`
    - `Apache/2.4... (Unix) ... configured -- resuming normal operations`
 
-3. Confirma que los servicios están arriba:
+3. Confirm the services are running:
 
    ```powershell
    docker compose ps
    ```
 
-   Debes ver `erp-node-api` y `erp-php` con los puertos publicados (`3000->3000`, `8080->80`, salvo que hayas cambiado el `.env`).
+   You should see `erp-node-api` and `erp-php` with the published ports (`3000->3000`, `8080->80`, unless you changed `.env`).
 
-## 2. Validar la salud de los servicios
+## 2. Validate Service Health
 
 1. Node API:
 
@@ -38,7 +38,7 @@ Esta guía complementa el README del monorepo y explica, con el mismo nivel de d
    Invoke-RestMethod http://localhost:3000/health
    ```
 
-   Respuesta esperada:
+   Expected response:
 
    ```powershell
    status
@@ -46,7 +46,7 @@ Esta guía complementa el README del monorepo y explica, con el mismo nivel de d
    ok
    ```
 
-2. ERP PHP (login con las credenciales configuradas en `.env`):
+2. PHP ERP (sign in with the credentials configured in `.env`):
 
    ```powershell
    Invoke-RestMethod -Uri http://localhost:8080/login -Method POST `
@@ -54,28 +54,28 @@ Esta guía complementa el README del monorepo y explica, con el mismo nivel de d
      -Body '{"username":"isa_6464","password":"6464","clientEmail":"client1@example.com"}'
    ```
 
-   Ajusta `username` y `password` si cambiaste los valores. Debes recibir `Authentication successful` con `tenant` y `storage`.
+   Adjust `username` and `password` if you changed the values. You should receive `Authentication successful` with `tenant` and `storage`.
 
-## 3. Probar el guardado de ScopeKit en Node
+## 3. Test ScopeKit Persistence in Node
 
-1. Exporta la variable para exigir rol admin/super‑admin (solo afecta al contenedor Node):
+1. Export the variable to require an admin/super-admin role (only affects the Node container):
 
    ```powershell
    $env:CREDENTIALS_REQUIRE_ADMIN = "true"
    docker compose up --build node-api
    ```
 
-   > Si prefieres editar el `docker-compose.yml`, añade la variable en `services.node-api.environment` y vuelve a levantar el stack completo.
+   > If you prefer editing `docker-compose.yml`, add the variable under `services.node-api.environment` and bring the full stack up again.
 
-2. Llama al endpoint sin cabeceras:
+2. Call the endpoint without headers:
 
    ```powershell
    Invoke-RestMethod -Uri http://localhost:3000/client/client1@example.com -Method POST
    ```
 
-   Resultado esperado: `403 Forbidden: admin only`.
+   Expected result: `403 Forbidden: admin only`.
 
-3. Repite la petición con cabeceras de super admin:
+3. Repeat the request with super admin headers:
 
    ```powershell
    $headers = @{
@@ -89,25 +89,25 @@ Esta guía complementa el README del monorepo y explica, con el mismo nivel de d
      -Method POST -Headers $headers -Body '{"requestedAt":"test"}'
    ```
 
-   Deberías recibir el payload con `tenant`, `db` y `storage`. Esto demuestra que ScopeKit identifica las cabeceras y permite el bypass cuando la entidad tiene permisos.
+   You should receive the payload with `tenant`, `db`, and `storage`. This shows that ScopeKit reads the headers and allows the bypass when the entity has permissions.
 
-## 4. Verificar el aislamiento por tenant en PHP
+## 4. Verify Tenant Isolation in PHP
 
-1. Lista los colores de `client1`:
+1. List the colors for `client1`:
 
    ```powershell
    Invoke-RestMethod "http://localhost:8080/colors?clientEmail=client1@example.com"
    ```
 
-2. Lista los colores de `client2`:
+2. List the colors for `client2`:
 
    ```powershell
    Invoke-RestMethod "http://localhost:8080/colors?clientEmail=client2@example.com"
    ```
 
-   Cada respuesta debe contener únicamente los registros de su base de datos correspondiente.
+   Each response should contain only the records from its corresponding database.
 
-3. Inserta un color nuevo para `client1`:
+3. Insert a new color for `client1`:
 
    ```powershell
    Invoke-RestMethod -Uri http://localhost:8080/colors -Method POST `
@@ -115,13 +115,13 @@ Esta guía complementa el README del monorepo y explica, con el mismo nivel de d
      -Body '{"clientEmail":"client1@example.com","name":"Azure","hexadecimal":"#007FFF"}'
    ```
 
-   Vuelve a llamar al listado del paso 1: verás el nuevo color solo en `client1`.
+   Call the list from step 1 again: you will see the new color only under `client1`.
 
-4. (Opcional) Inserta un registro para `client2` y asegúrate de que no aparece en `client1`.
+4. (Optional) Insert a record for `client2` and make sure it does not show up under `client1`.
 
-## 5. Trazar el principal en los logs (opcional)
+## 5. Trace the Principal in the Logs (Optional)
 
-Durante el desarrollo, puedes registrar el principal generado por ScopeKit para depurar cabeceras:
+During development you can log the principal generated by ScopeKit to debug headers:
 
 ```js
 // node-api/src/server.js
@@ -135,22 +135,22 @@ if (process.env.NODE_ENV !== 'production') {
 }
 ```
 
-Reinicia el contenedor Node y observa los logs al enviar peticiones. Una vez que valides el flujo, elimina o comenta el middleware temporal.
+Restart the Node container and watch the logs while sending requests. Once you validate the flow, remove or comment out the temporary middleware.
 
-## 6. Limpiar el entorno
+## 6. Clean Up the Environment
 
-Cuando termines las pruebas:
+When you finish testing:
 
 ```powershell
 docker compose down -v
 ```
 
-Esto elimina contenedores y volúmenes para dejar el entorno limpio.
+This removes containers and volumes so the environment is clean.
 
 ---
 
-Con estos pasos verificas:
+With these steps you verify:
 
-- Que ScopeKit exige cabeceras y roles correctos antes de servir credenciales.
-- Que los servicios aguas abajo respetan el scope por entidad/tenant.
-- Que las herramientas de apoyo (logs y pruebas manuales) te permiten auditar cualquier integración con ScopeKit.
+- ScopeKit requires the correct headers and roles before serving credentials.
+- Downstream services respect the scope per entity/tenant.
+- The supporting tools (logs and manual tests) allow you to audit any ScopeKit integration.
