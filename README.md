@@ -56,7 +56,7 @@ This repository contains a minimal multi-tenant ERP prototype that mirrors the a
 
 4. **Default access data**
 
-   - ERP login: values from `.env` (`LOGIN_USERNAME`, `LOGIN_PASSWORD`) – defaults are `admin` / `secret123`.
+   - ERP login: values from `.env` (`LOGIN_USERNAME`, `LOGIN_PASSWORD`) - defaults are `admin` / `secret123`. If you change the root `.env`, sign in with the updated credentials.
    - Tenants (`clientEmail`): `client1@example.com`, `client2@example.com`.
 
 MySQL is provisioned automatically through the scripts in `mysql/init/`. Prisma syncs the credential schema and seeds the sample tenants on startup.
@@ -188,6 +188,24 @@ curl -X DELETE "$BASE_URL/colors/1?clientEmail=client1@example.com"
 
 Credentials are persisted in the `ClientCredential` Prisma model. The Prisma seed (`node-api/prisma/seed.js`) keeps the data idempotent so re-running Docker Compose will not duplicate tenants.
 
+## ScopeKit package
+
+The Node service bundles `@raccoonstudiosllc/scopekit` under `node-api/raccoonstudiosllc-scopekit-0.1.0.tgz`. This kit provides:
+
+- An Express `principalMiddleware` that maps headers (`X-Entity-Id`, `X-Roles`, `X-Admin`) into `req.principal`.
+- Core helpers (`applyScope`, `injectOnCreate`, `ensureOwnership`, `isBypassed`) to apply tenant filters across ORMs.
+- A Knex adapter that appends the entity condition to query builders.
+
+Install it in another project with:
+
+```bash
+npm install ./node-api/raccoonstudiosllc-scopekit-0.1.0.tgz
+# or, once published:
+# npm install @raccoonstudiosllc/scopekit
+```
+
+See `docs/scopekit.md` for end-to-end examples covering the middleware setup, query scoping, and ownership guards.
+
 ## Useful commands
 
 ```bash
@@ -207,6 +225,7 @@ docker compose down -v
 
 ### Troubleshooting
 
+- **401 on `/login`**: confirm the credentials match the root `.env` (`LOGIN_USERNAME`, `LOGIN_PASSWORD`). Recreate containers after changing them so PHP reloads the updated values (`docker compose up --build php-app`).
 - **`MYSQL_ROOT_PASSWORD` variable is not set**: ensure `.env` exists at the repository root *before* running `docker compose up`. Recreate containers with `docker compose down -v && docker compose up --build`.
 - **`clientEmail is required` when testing with PowerShell**: PowerShell may split multiline JSON. Use single-line payloads, here-strings stored in a variable, or `--data-binary "@file.json"` with `curl.exe`.
 - **Pretty URLs ( `/login`, `/colors` ) return HTML 404**: rebuild the PHP image so Apache picks up the bundled `.htaccess` rewrite rules (`docker compose up --build php-app`).

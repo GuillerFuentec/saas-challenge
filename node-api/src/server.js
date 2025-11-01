@@ -5,6 +5,11 @@ const helmet = require('helmet');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 
+const {
+  adapters: { express: { principalMiddleware } },
+  core: { isBypassed /*, applyScope */ },
+} = require('@raccoonstudiosllc/scopekit');
+
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,6 +17,19 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// ScopeKit middleware builds req.principal from headers:
+//   X-Entity-Id: numeric tenant id
+//   X-Roles: comma separated roles (super-admin,authenticated)
+//   X-Admin: true|false
+app.use(principalMiddleware({
+  extractor: (req) => ({
+    entityId: Number(req.header('x-entity-id')) || null,
+    roles: (req.header('x-roles') || '').split(',').map(s => s.trim()).filter(Boolean),
+    isAdmin: String(req.header('x-admin')).toLowerCase() === 'true',
+  }),
+  superRoles: ['super-admin'],
+}));
 
 app.get('/', (_req, res) => {
   res.json({
@@ -31,24 +49,42 @@ app.get('/health', async (_req, res, next) => {
   }
 });
 
+// Optional guard: enforce admin or super-admin when CREDENTIALS_REQUIRE_ADMIN=true
+// Toggle the behaviour with the CREDENTIALS_REQUIRE_ADMIN env var (default: false)
 app.post('/client/:email', async (req, res, next) => {
   try {
+    if (process.env.CREDENTIALS_REQUIRE_ADMIN === 'true') {
+      const canBypass = isBypassed({
+        roles: req.principal?.roles || [],
+        isAdmin: !!req.principal?.isAdmin,
+        superRoles: ['super-admin'],
+      });
+      if (!canBypass) {
+        return res.status(403).json({ message: 'Forbidden: admin only' });
+      }
+    }
+
     const email = decodeURIComponent(req.params.email).toLowerCase();
-    const client = await prisma.clientCredential.findUnique({
-      where: { email }
-    });
+
+    // Current behaviour: look up credentials by email only (entityId pending)
+    const client = await prisma.clientCredential.findUnique({ where: { email } });
+
+    // Future behaviour: once entityId is available apply automatic scoping
+    // const where = applyScope({
+    //   principal: req.principal,
+    //   filters: { email },          // Prisma where
+    //   entityField: 'entityId',
+    //   bypassRoles: ['super-admin'],
+    //   isAdmin: req.principal?.isAdmin,
+    // });
+    // const client = await prisma.clientCredential.findFirst({ where });
 
     if (!client) {
-      return res.status(404).json({
-        message: `Client with email ${email} was not found`
-      });
+      return res.status(404).json({ message: `Client with email ${email} was not found` });
     }
 
     res.json({
-      tenant: {
-        name: client.name,
-        email: client.email
-      },
+      tenant: { name: client.name, email: client.email },
       db: {
         host: client.dbHost,
         user: client.dbUser,
@@ -85,6 +121,5 @@ const shutDown = () => {
     process.exit(0);
   });
 };
-
 process.on('SIGTERM', shutDown);
 process.on('SIGINT', shutDown);

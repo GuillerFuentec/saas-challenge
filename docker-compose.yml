@@ -13,12 +13,15 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
 
   node-api:
-    build: ./node-api
+    build:
+      context: ./node-api
+      dockerfile: Dockerfile
     container_name: erp-node-api
     restart: unless-stopped
     environment:
       PORT: ${NODE_API_PORT}
       DATABASE_URL: mysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/credential_store
+      CREDENTIALS_REQUIRE_ADMIN: ${CREDENTIALS_REQUIRE_ADMIN:-true}
     depends_on:
       - mysql
     ports:
